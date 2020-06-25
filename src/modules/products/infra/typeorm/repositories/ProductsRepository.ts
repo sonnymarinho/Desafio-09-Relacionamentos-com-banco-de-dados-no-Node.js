@@ -1,5 +1,6 @@
 import { getRepository, Repository, In } from 'typeorm';
 
+import AppError from '@shared/errors/AppError';
 import IProductsRepository from '@modules/products/repositories/IProductsRepository';
 import ICreateProductDTO from '@modules/products/dtos/ICreateProductDTO';
 import IUpdateProductsQuantityDTO from '@modules/products/dtos/IUpdateProductsQuantityDTO';
@@ -7,6 +8,10 @@ import Product from '../entities/Product';
 
 interface IFindProducts {
   id: string;
+}
+
+interface IQuantityByID {
+  [id: string]: number;
 }
 
 class ProductsRepository implements IProductsRepository {
@@ -41,10 +46,10 @@ class ProductsRepository implements IProductsRepository {
   }
 
   public async findAllById(products: IFindProducts[]): Promise<Product[]> {
-    const productsIds = products.map(product => product.id);
+    const productsIDs = products.map(product => product.id);
 
     const allProducts = await this.ormRepository.find({
-      id: In(productsIds),
+      id: In(productsIDs),
     });
 
     return allProducts;
@@ -53,28 +58,29 @@ class ProductsRepository implements IProductsRepository {
   public async updateQuantity(
     products: IUpdateProductsQuantityDTO[],
   ): Promise<Product[]> {
-    const productsList = await this.findAllById(
-      products.map(product => {
-        return { id: product.id };
-      }),
-    );
+    const productsFromDB = await this.findAllById(products);
 
-    const updatedProductsList = productsList.reduce(
-      (accumulator: Product[], productsList) => {
-        switch (transactions.type) {
-          case 'outcome':
-            accumulator.outcome += transactions.value;
-            break;
-          case 'income':
-            accumulator.income += transactions.value;
-            break;
-          default:
-            break;
-        }
+    const toBeAjustedProducts = products.map(product => {
+      const { id, quantity } = product;
 
-        return accumulator;
-      },
-    );
+      const toBeAjustedProduct = productsFromDB.find(
+        productFromDB => productFromDB.id === id,
+      );
+
+      if (!toBeAjustedProduct) {
+        throw new AppError(
+          "Isn't possible to be ajust the product. Product does not exists.",
+        );
+      }
+
+      toBeAjustedProduct.quantity -= quantity;
+
+      return toBeAjustedProduct;
+    });
+
+    await this.ormRepository.save(toBeAjustedProducts);
+
+    return toBeAjustedProducts;
   }
 }
 

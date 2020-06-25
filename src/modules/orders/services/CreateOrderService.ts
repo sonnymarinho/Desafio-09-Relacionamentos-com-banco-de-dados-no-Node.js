@@ -31,18 +31,44 @@ class CreateOrderService {
   public async execute({ customer_id, products }: IRequest): Promise<Order> {
     const customer = await this.customersRepository.findById(customer_id);
 
+    // Verifying if customer exists
     if (!customer) {
       throw new AppError('Customer does not exists');
     }
 
-    const productIds = products.map(product => {
-      return { id: product.id };
+    // Verifying if all products requested exists
+    const productsFromDB = await this.productsRepository.findAllById(products);
+    if (productsFromDB.length !== products.length) {
+      throw new AppError(
+        'You are not be able to create an order with an invalid product.',
+      );
+    }
+
+    // Verifying if the quantity requested is less than the quantity available
+    products.forEach(requestedProduct => {
+      const dbProduct = productsFromDB.find(
+        productDB => productDB.id === requestedProduct.id,
+      );
+
+      const dbQuantity = dbProduct?.quantity;
+      const reqQuantity = requestedProduct.quantity;
+
+      if (dbQuantity && dbQuantity < reqQuantity) {
+        throw new AppError(
+          'You are not be able to create an order with an invalid product.',
+        );
+      }
     });
 
-    const productsList = await this.productsRepository.findAllById(productIds);
+    const formatedProductList = productsFromDB.map(productDB => {
+      const { id: product_id, price } = productDB;
+      let quantity = 0;
 
-    const formatedProductList = productsList.map(product => {
-      const { id: product_id, price, quantity } = product;
+      products.forEach(product => {
+        if (product.id === productDB.id) {
+          quantity = product.quantity;
+        }
+      });
 
       return {
         product_id,
@@ -55,6 +81,8 @@ class CreateOrderService {
       customer,
       products: formatedProductList,
     });
+
+    await this.productsRepository.updateQuantity(products);
 
     return order;
   }
